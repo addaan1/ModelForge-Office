@@ -1,0 +1,31 @@
+{
+  "name": "modelforge-office",
+  "version": "2.7.1",
+  "description": "A first-person AI office for Kaggle strategy, data workflow, notebook execution, and multi-advisor decision making.",
+  "type": "module",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "node --test js/advisors.test.mjs",
+    "qa:visual": "node tools/visual_qa.mjs"
+  },
+  "keywords": [
+    "kaggle",
+    "threejs",
+    "fastapi",
+    "llm",
+    "ollama",
+    "machine-learning",
+    "notebook",
+    "visual-qa"
+  ],
+  "author": "",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@playwright/test": "^1.60.0"
+  },
+  "dependencies": {
+    "three": "^0.164.1"
+  }
+}

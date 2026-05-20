@@ -1,0 +1,10 @@
+{
+  "competition_slug": "house-prices-advanced-regression-techniques",
+  "problem_type": "Tabular regression",
+  "metric": "RMSE on log sale price",
+  "notes": [
+    "Start with data audit and baseline.",
+    "Validation should be stable before leaderboard optimization.",
+    "Every experiment should be logged with CV and public LB score."
+  ]
+}

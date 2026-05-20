@@ -1,0 +1,12 @@
+﻿{
+  "version": "2.7",
+  "note": "Optional local GLTF/GLB assets. Keep files CC0/legal, low-poly, and optimized. Missing assets fall back to procedural geometry.",
+  "assets": {
+    "modern-sofa": null,
+    "coffee-machine": null,
+    "arcade-cabinet": null,
+    "elevator-shell-f1": null,
+    "elevator-shell-f2": null,
+    "elevator-shell-f3": null
+  }
+}

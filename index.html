@@ -1,0 +1,442 @@
+﻿<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kaggle War Room v2.7 - Mission Control</title>
+  <link rel="stylesheet" href="./css/style.css?v=2.7" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./node_modules/three/build/three.module.js",
+        "three/addons/": "./node_modules/three/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="appShell">
+    <canvas id="worldCanvas" aria-label="Kaggle War Room 3D office"></canvas>
+
+    <div id="reticle" aria-hidden="true"><span></span></div>
+
+    <div id="topHud">
+      <div class="brandBlock">
+        <div class="brandMark">KW</div>
+        <div>
+          <div class="brandTitle">Kaggle War Room</div>
+          <div class="brandSub">First-person AI office for competition strategy</div>
+        </div>
+      </div>
+      <div class="hudPills">
+        <span id="floorPill">Floor 1 - Lobby</span>
+        <span id="modePill">Mode UI</span>
+        <span id="voicePill">Voice: On</span>
+      </div>
+    </div>
+
+    <div id="miniMap" class="miniMap" aria-label="Room map"></div>
+
+    <button id="panelEdgeTab" class="panelEdgeTab" title="Buka/tutup Mission Control" aria-label="Buka/tutup Mission Control">Panel</button>
+
+    <aside id="sidePanel" class="panel open" aria-label="Mission Control">
+      <header class="panelHeader">
+        <div>
+          <span class="panelKicker">Kaggle operations desk</span>
+          <h1>Mission Control</h1>
+          <p>Intake kompetisi, baca data, tanya advisor, rapat, lalu catat keputusan eksperimen dalam satu alur kerja.</p>
+        </div>
+        <button id="togglePanelBtn" class="iconBtn" title="Tutup panel" aria-label="Tutup panel">X</button>
+      </header>
+
+      <nav class="panelTabs" aria-label="Mission Control sections">
+        <button class="tabBtn active" data-panel-tab="mission">Mission</button>
+        <button class="tabBtn" data-panel-tab="advisor">Advisor</button>
+        <button class="tabBtn" data-panel-tab="coding">Coding</button>
+        <button class="tabBtn" data-panel-tab="meeting">Meeting</button>
+        <button class="tabBtn" data-panel-tab="board">Board</button>
+        <button class="tabBtn" data-panel-tab="settings">Settings</button>
+      </nav>
+
+      <section class="panelPane active" data-panel-pane="mission">
+        <section class="card missionHero">
+          <div>
+            <h2>Competition Intake</h2>
+            <p id="currentProjectSummary">Belum ada project aktif.</p>
+          </div>
+          <button id="kaggleAnalyzeBtn" class="primaryBtn">Analisis & Download Kaggle</button>
+          <p id="missionStatus" class="statusLine">Masukkan link/slug lalu jalankan analisis.</p>
+        </section>
+
+        <section class="card">
+          <label>Link/slug Kaggle
+            <input id="competitionLink" placeholder="contoh: https://www.kaggle.com/competitions/titanic" />
+          </label>
+          <label>Jenis problem
+            <select id="problemType">
+              <option>Belum dianalisis</option>
+              <option>Tabular classification</option>
+              <option>Tabular regression</option>
+              <option>Computer vision</option>
+              <option>NLP / LLM</option>
+              <option>Time series</option>
+              <option>Recommendation / ranking</option>
+            </select>
+          </label>
+          <label>Catatan awal
+            <textarea id="briefText" rows="5" placeholder="Metric, deadline, target variable, constraint submit, target score, dan catatan penting..."></textarea>
+          </label>
+          <div class="buttonGrid two">
+            <button id="saveBriefBtn" class="primaryBtn">Simpan brief</button>
+            <button id="buildPlanBtn">Bangun plan awal</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>Metadata & Data Profile</h2>
+          <div id="metadataSummary" class="dataSummary">Belum ada metadata Kaggle.</div>
+        </section>
+      </section>
+
+      <section class="panelPane" data-panel-pane="advisor">
+        <section class="card missionRouterCard">
+          <h2>Mission Router</h2>
+          <p class="hint">Tanya satu tempat; router memilih advisor paling relevan untuk kerja cepat.</p>
+          <label>Mode jawaban
+            <select id="routerMode">
+              <option value="fast">Fast Answer</option>
+              <option value="panel">Panel Review</option>
+            </select>
+          </label>
+          <textarea id="routerInput" rows="3" placeholder="Contoh: review notebook baseline saya dan cari risiko leakage..."></textarea>
+          <button id="routerAskBtn" class="primaryBtn wideBtn" type="button">Ask Mission Router</button>
+          <div id="routerLog" class="routerLog"></div>
+        </section>
+        <section class="card">
+          <h2>Advisor</h2>
+          <div id="activeAgentBox" class="agentBox">
+            <strong>Belum memilih advisor</strong>
+            <span>Diskusi utama sekarang dibuka di fullscreen conversation.</span>
+          </div>
+          <select id="agentSelect" aria-label="Pilih advisor"></select>
+          <button id="openConversationBtn" class="primaryBtn wideBtn" type="button">Buka fullscreen chat</button>
+          <div id="chatLog" class="chatLog compactTranscript" aria-live="polite"></div>
+          <div class="voiceDraft">
+            <div class="buttonGrid two">
+              <button id="recordTranscriptBtn">Rekam pertanyaan</button>
+              <button id="stopTranscriptBtn" disabled>Stop & transcribe</button>
+            </div>
+            <p id="transcriptStatus" class="hint">Whisper backend memakai endpoint /api/transcribe.</p>
+          </div>
+          <div class="chatInputRow">
+            <input id="chatInput" placeholder="Ketik atau transcribe pertanyaan untuk advisor..." />
+            <button id="sendChatBtn" class="primaryBtn">Kirim</button>
+          </div>
+        </section>
+      </section>
+
+      <section class="panelPane" data-panel-pane="coding">
+        <section class="card codingHero">
+          <h2>Coding Studio</h2>
+          <p>Taruh notebook/script di <code>data/competitions/&lt;slug&gt;/code</code>. War Room bisa scan, preview, run aman, dan kirim review ke advisor.</p>
+          <div class="buttonGrid two">
+            <button id="workspaceScanBtn" class="primaryBtn" type="button">Scan workspace</button>
+            <button id="workspaceReviewBtn" type="button">Ask Review</button>
+          </div>
+          <p id="workspaceStatus" class="statusLine">Belum scan workspace.</p>
+        </section>
+        <section class="card">
+          <h2>Notebook Templates</h2>
+          <div class="buttonGrid two">
+            <button data-template="eda" type="button">01 EDA</button>
+            <button data-template="baseline" type="button">02 Baseline</button>
+            <button data-template="modeling" type="button">03 Modeling</button>
+            <button data-template="submission" type="button">04 Submission</button>
+          </div>
+        </section>
+        <section class="card">
+          <h2>Code Files</h2>
+          <div id="workspaceFiles" class="workspaceFiles"></div>
+        </section>
+        <section class="card">
+          <h2>Preview & Safe Run</h2>
+          <div id="workspacePreview" class="workspacePreview">Pilih file notebook/script.</div>
+          <label>Timeout seconds
+            <input id="workspaceTimeout" type="number" min="5" max="600" value="120" />
+          </label>
+          <button id="workspaceRunBtn" class="primaryBtn wideBtn" type="button">Run Safe</button>
+          <div id="workspaceRunLog" class="workspaceRunLog"></div>
+        </section>
+      </section>
+
+      <section class="panelPane" data-panel-pane="meeting">
+        <section class="card">
+          <h2>War Room Debate</h2>
+          <label>Topik rapat
+            <textarea id="meetingTopic" rows="3" placeholder="Contoh: Perdebatkan baseline, leakage risk, validasi, dan strategi submission."></textarea>
+          </label>
+          <div class="buttonGrid two">
+            <button id="gatherTeamBtn" class="primaryBtn">Kumpulkan team</button>
+            <button id="startMeetingBtn">Buka Debate Stage</button>
+          </div>
+          <button id="summarizeMeetingBtn" class="wideBtn">Ringkas keputusan rapat</button>
+          <div class="standupPrompt">
+            <strong>Daily Standup Prompt</strong>
+            <button data-standup="learned">What did we learn?</button>
+            <button data-standup="next">What experiment next?</button>
+            <button data-standup="risk">What risk before submission?</button>
+          </div>
+          <div id="meetingLog" class="meetingLog"></div>
+        </section>
+      </section>
+
+      <section class="panelPane" data-panel-pane="board">
+        <section class="card">
+          <h2>Workflow Checklist</h2>
+          <div id="workflowChecklist" class="checklist"></div>
+        </section>
+
+        <section class="card">
+          <h2>Experiment Log</h2>
+          <div class="experimentRow">
+            <input id="experimentName" placeholder="Nama eksperimen" />
+            <input id="experimentScore" placeholder="CV / LB score" />
+            <button id="addExperimentBtn" class="primaryBtn">Tambah</button>
+          </div>
+          <div id="experimentLog" class="experimentLog"></div>
+        </section>
+
+        <section class="card">
+          <h2>Strategy Board</h2>
+          <button id="openWhiteboardBtn" class="wideBtn">Buka whiteboard & kanban</button>
+        </section>
+      </section>
+
+      <section class="panelPane" data-panel-pane="settings">
+        <section class="card">
+          <h2>Kontrol utama</h2>
+          <div class="buttonGrid">
+            <button id="enterWorldBtn" class="primaryBtn">Masuk mode first-person</button>
+            <button id="cursorModeBtn">Mode UI / mouse bebas</button>
+            <button id="goWarRoomBtn">Teleport ke War Room</button>
+            <button id="goFloor2Btn" type="button">Petunjuk lift fisik</button>
+            <button id="voiceToggleBtn">Voice coworker: Off</button>
+            <button id="focusModeBtn">Focus Mode</button>
+          </div>
+          <label class="toggleRow qaToggle">
+            <input id="collisionDebugToggle" type="checkbox" />
+            <span>QA collision overlay</span>
+          </label>
+          <label>Look sensitivity
+            <input id="lookSensitivity" type="range" min="0.35" max="1.4" step="0.01" />
+          </label>
+          <p class="hint">Untuk pindah lantai: pergi ke area lift, tekan E, lalu pilih lantai. W/A/S/D bergerak, Shift lari. Tab/Esc kembali ke UI. P panel.</p>
+        </section>
+
+        <section class="card">
+          <h2>Audio Atmosphere</h2>
+          <label class="toggleRow">
+            <input id="musicToggle" type="checkbox" />
+            <span>Relax Office Music</span>
+          </label>
+          <label>Music volume
+            <input id="musicVolume" type="range" min="0" max="1" step="0.01" />
+          </label>
+          <label class="toggleRow">
+            <input id="ambienceToggle" type="checkbox" />
+            <span>Office Ambience</span>
+          </label>
+          <label>Ambience volume
+            <input id="ambienceVolume" type="range" min="0" max="1" step="0.01" />
+          </label>
+          <label>Voice volume
+            <input id="voiceVolume" type="range" min="0.2" max="1.2" step="0.05" />
+          </label>
+          <label class="toggleRow">
+            <input id="npcBehaviorToggle" type="checkbox" />
+            <span>Coworker jalan santai</span>
+          </label>
+          <p id="npcStatus" class="hint">Coworker bebas bergerak saat team tidak sedang dikumpulkan dan Focus Mode mati.</p>
+        </section>
+
+        <section class="card">
+          <h2>Backend & LLM</h2>
+          <label>Backend base URL
+            <input id="backendBaseUrl" placeholder="http://127.0.0.1:7860" />
+          </label>
+          <label>Chat endpoint
+            <input id="llmEndpoint" placeholder="http://127.0.0.1:7860/api/chat" />
+          </label>
+          <label>Model label
+            <input id="llmModelLabel" placeholder="gemma3:4b / qwen2.5-coder:7b / remote model" />
+          </label>
+          <button id="saveLlmBtn" class="primaryBtn wideBtn">Simpan konfigurasi</button>
+          <div class="modelNote">
+            <strong>Default lokal:</strong> Gemma 3 4B via Ollama untuk laptop ini. Gemma 4 26B MoE/A4B disimpan sebagai mode advanced/remote karena kebutuhan memorinya jauh di atas VRAM laptop ini.
+          </div>
+        </section>
+      </section>
+    </aside>
+
+    <div id="bottomPrompt" class="bottomPrompt">
+      <span id="interactionHint">Klik "Masuk mode first-person" untuk mulai.</span>
+    </div>
+
+    <section id="rpgDialog" class="rpgDialog" aria-live="polite" hidden>
+      <div class="rpgSpeaker">
+        <span id="rpgName">Advisor</span>
+        <button id="rpgCloseBtn" class="miniBtn" type="button">Tutup</button>
+      </div>
+      <div id="rpgText" class="rpgText"></div>
+      <div id="rpgChoices" class="rpgChoices"></div>
+    </section>
+
+    <section id="officeInteractionOverlay" class="officeInteractionOverlay" hidden aria-live="polite">
+      <div class="officeInteractionShell">
+        <header>
+          <div>
+            <span id="officeInteractionKicker">Office Interaction</span>
+            <h2 id="officeInteractionTitle">Interaction</h2>
+          </div>
+          <button id="officeInteractionCloseBtn" class="iconBtn" type="button">X</button>
+        </header>
+        <div id="officeInteractionBody" class="officeInteractionBody"></div>
+        <div id="officeInteractionStats" class="officeInteractionStats"></div>
+        <div id="officeInteractionActions" class="officeInteractionActions"></div>
+      </div>
+    </section>
+
+    <section id="conversationOverlay" class="experienceOverlay conversationOverlay" hidden aria-live="polite">
+      <div class="overlayShell conversationShell">
+        <header class="overlayHeader">
+          <div>
+            <span id="conversationKicker">Coworker Conversation</span>
+            <h2 id="conversationTitle">Advisor</h2>
+            <p id="conversationSubtitle">Fullscreen discussion for Kaggle strategy.</p>
+          </div>
+          <div class="overlayHeaderActions">
+            <button id="conversationSendBoardBtn" type="button">Kirim ke board</button>
+            <button id="conversationCloseBtn" class="iconBtn" type="button">X</button>
+          </div>
+        </header>
+        <div id="conversationMessages" class="conversationMessages"></div>
+        <div class="conversationQuickActions">
+          <button data-conv-prompt="project" type="button">Jelaskan project</button>
+          <button data-conv-prompt="risk" type="button">Risiko</button>
+          <button data-conv-prompt="experiment" type="button">Next experiment</button>
+          <button data-conv-prompt="teach" type="button">Ajari konsep</button>
+        </div>
+        <div class="conversationInputRow">
+          <textarea id="conversationInput" rows="2" placeholder="Tulis pertanyaan untuk coworker..."></textarea>
+          <button id="conversationSendBtn" class="primaryBtn" type="button">Kirim</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="debateStageOverlay" class="experienceOverlay debateStageOverlay" hidden aria-live="polite">
+      <div class="overlayShell debateShell">
+        <header class="overlayHeader">
+          <div>
+            <span>Glass War Room</span>
+            <h2>Debate Stage</h2>
+            <p id="debateStageTopic">Advisor memberi pendapat bergiliran, lalu diringkas menjadi keputusan.</p>
+          </div>
+          <div class="overlayHeaderActions">
+            <button id="debateSaveBtn" type="button">Simpan summary</button>
+            <button id="debateRetryBtn" type="button">Retry</button>
+            <button id="debateCloseBtn" class="iconBtn" type="button">X</button>
+          </div>
+        </header>
+        <div id="debateStageCards" class="debateStageCards"></div>
+        <section class="debateSummary">
+          <h3>Decision Summary</h3>
+          <div id="debateStageSummary" class="richText">Belum ada summary.</div>
+        </section>
+      </div>
+    </section>
+
+    <dialog id="whiteboardDialog" class="wideDialog">
+      <form method="dialog">
+        <header class="dialogHeader">
+          <div>
+            <h2>Interactive Whiteboard</h2>
+            <p>Catatan ini tersimpan di browser lokal.</p>
+          </div>
+          <button class="iconBtn">X</button>
+        </header>
+      </form>
+      <div class="whiteboardGrid">
+        <section>
+          <h3>Strategy Board</h3>
+          <textarea id="whiteboardText" rows="16"></textarea>
+          <div class="buttonGrid two">
+            <button id="saveWhiteboardBtn" class="primaryBtn">Simpan whiteboard</button>
+            <button id="generateWhiteboardBtn">Isi dari brief</button>
+          </div>
+        </section>
+        <section>
+          <h3>Experiment Kanban</h3>
+          <div id="kanbanBoard" class="kanbanBoard"></div>
+        </section>
+      </div>
+    </dialog>
+
+    <dialog id="onboardingDialog" class="wideDialog">
+      <form method="dialog">
+        <header class="dialogHeader">
+          <div>
+            <h2>Onboarding Desk</h2>
+            <p>Asisten resepsionis membantu menentukan alur kerja.</p>
+          </div>
+          <button class="iconBtn">X</button>
+        </header>
+      </form>
+      <div class="onboardingFlow">
+        <ol id="onboardingSteps"></ol>
+        <div class="buttonGrid two">
+          <button id="applyOnboardingBtn" class="primaryBtn">Terapkan alur ini</button>
+          <button id="openDocsBtn">Buka roadmap</button>
+        </div>
+      </div>
+    </dialog>
+
+    <section id="arcadeOverlay" class="experienceOverlay arcadeOverlay" hidden>
+      <div class="overlayShell arcadeShell">
+        <header class="overlayHeader">
+          <div>
+            <span>Floor 3 Arcade</span>
+            <h2 id="arcadeTitle">Kaggle Quiz</h2>
+            <p id="arcadeSubtitle">Skill training dan game santai untuk recharge.</p>
+          </div>
+          <button id="arcadeCloseBtn" class="iconBtn" type="button">X</button>
+        </header>
+        <nav id="arcadeGameTabs" class="arcadeGameTabs"></nav>
+        <div id="arcadeContent" class="arcadeContent"></div>
+      </div>
+    </section>
+
+    <section id="workstationDock" class="workstationDock" hidden>
+      <header>
+        <div>
+          <span>Workstation Mode</span>
+          <strong id="workstationTitle">Workstation chair</strong>
+        </div>
+        <button id="workstationStandBtn" class="miniBtn" type="button">Berdiri</button>
+      </header>
+      <div id="workstationOutput" class="workstationOutput"></div>
+      <div class="workstationActions">
+        <button id="workstationMissionBtn" type="button">Mission</button>
+        <button id="workstationAdvisorBtn" type="button">Tanya Raka</button>
+        <button id="workstationExperimentBtn" type="button">Next experiment</button>
+        <button id="workstationBoardBtn" type="button">Board</button>
+        <button id="workstationFocusBtn" type="button">Focus</button>
+      </div>
+    </section>
+
+    <div id="toast" class="toast" role="status"></div>
+  </div>
+
+  <script type="module" src="./js/app.js?v=2.7"></script>
+</body>
+</html>
+

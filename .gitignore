@@ -1,0 +1,34 @@
+# Runtime dependencies
+node_modules/
+server/.venv/
+server/__pycache__/
+**/__pycache__/
+*.py[cod]
+
+# Local environment and secrets
+.env
+.env.*
+kaggle.json
+.kaggle/
+*.key
+*.pem
+
+# Local logs and generated QA output
+logs/
+qa-artifacts/
+*.log
+
+# Kaggle datasets and local experiment artifacts
+# Keep source/data instructions, but do not publish competition data or private run outputs.
+data/competitions/*/raw/*
+!data/competitions/manual-project/raw/README.md
+data/competitions/*/outputs/
+data/competitions/*/runs/
+data/competitions/*/metadata.json
+data/competitions/*/code/*.ipynb_checkpoints/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
