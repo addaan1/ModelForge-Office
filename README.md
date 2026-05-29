@@ -1,4 +1,4 @@
-# ModelForge Office
+﻿# ModelForge Office
 
 <p align="center">
   <img src="docs/images/hero-office.png" alt="ModelForge Office first-person 3D workspace" width="100%">
@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="#quick-start"><img alt="Runs locally" src="https://img.shields.io/badge/runs-local_first-2563eb"></a>
-  <a href="#current-version"><img alt="Version" src="https://img.shields.io/badge/version-v2.7.1-0f766e"></a>
+  <a href="#current-version"><img alt="Version" src="https://img.shields.io/badge/version-v2.8.0-0f766e"></a>
   <a href="#tech-stack"><img alt="Three.js" src="https://img.shields.io/badge/3D-Three.js-111827"></a>
   <a href="#backend-and-llm"><img alt="FastAPI" src="https://img.shields.io/badge/backend-FastAPI-059669"></a>
   <a href="#safety-model"><img alt="Safe gated" src="https://img.shields.io/badge/Kaggle-safe_gated-f59e0b"></a>
@@ -26,18 +26,17 @@ The project is intentionally ambitious: part 3D workspace, part Kaggle operating
 
 ## Current Version
 
-**Current release: `v2.7.1`**
+**Current release: `v2.8.0`**
 
-This version focuses on stabilizing the environment and making the project presentable as a public repository:
+This version focuses on making War Room meetings useful and readable when many advisors participate:
 
-- Cleaner physical elevator flow with F1/F2/F3 cabin buttons.
-- Removed intrusive green interactable floor rings from normal/QA view.
-- Repositioned oversized lift-adjacent signage so the elevator area is less cluttered.
-- Improved README, repository hygiene, and public project structure.
-- Added local visual QA screenshots for the README.
-- Kept Kaggle data, logs, virtual environments, and generated QA artifacts out of Git.
+- Rebuilt Debate Stage into a Stage + Transcript layout: advisor cards now show only status, while long answers live in a scrollable transcript pane.
+- Added meeting modes for strategy, data/EDA review, validation/leakage audit, experiment review, and submission gate.
+- Added LLM Scribe synthesis with structured sections: executive summary, key decisions, most valuable insights, risks, next experiments, open questions, and next meeting recommendation.
+- Added save actions for decisions, full transcript, and next experiments so useful meeting output flows back into the board and experiment log.
+- Improved rich-text rendering and responsive layout so long LLM answers wrap cleanly on desktop and laptop viewports.
 
-> Status note: the app is usable as a prototype, but the 3D office is still under active visual rebuild. The next major milestone should focus on environment polish, prop consistency, pathing, and better 3D asset quality.
+> Status note: the app is usable as a prototype. The War Room meeting workflow is now much stronger, while the 3D office remains under active visual rebuild for prop consistency, pathing, and better asset quality.
 
 ## Product Vision
 
@@ -100,10 +99,10 @@ Each competition has a local workspace:
 
 ```text
 data/competitions/<slug>/
-├── raw/       # Kaggle data or manually placed competition files
-├── code/      # notebooks and scripts
-├── outputs/   # plots, reports, draft submissions, artifacts
-└── runs/      # safe-run execution logs
+â”œâ”€â”€ raw/       # Kaggle data or manually placed competition files
+â”œâ”€â”€ code/      # notebooks and scripts
+â”œâ”€â”€ outputs/   # plots, reports, draft submissions, artifacts
+â””â”€â”€ runs/      # safe-run execution logs
 ```
 
 This makes it possible to keep using Codex, VS Code, notebooks, or other coding tools while ModelForge Office reads, reviews, and runs files from the same workspace.
@@ -275,18 +274,18 @@ Visual QA screenshots are generated in `qa-artifacts/` and are intentionally ign
 
 ```text
 .
-├── assets/              # optional local model/assets manifest
-├── css/                 # application styles
-├── data/                # local Kaggle workspace root; datasets ignored by Git
-├── docs/                # documentation and README images
-├── js/                  # frontend application, advisor state, and 3D world
-├── scripts/             # helper scripts
-├── server/              # FastAPI backend
-├── tools/               # visual QA automation
-├── index.html
-├── package.json
-├── run_windows.bat
-└── README.md
+â”œâ”€â”€ assets/              # optional local model/assets manifest
+â”œâ”€â”€ css/                 # application styles
+â”œâ”€â”€ data/                # local Kaggle workspace root; datasets ignored by Git
+â”œâ”€â”€ docs/                # documentation and README images
+â”œâ”€â”€ js/                  # frontend application, advisor state, and 3D world
+â”œâ”€â”€ scripts/             # helper scripts
+â”œâ”€â”€ server/              # FastAPI backend
+â”œâ”€â”€ tools/               # visual QA automation
+â”œâ”€â”€ index.html
+â”œâ”€â”€ package.json
+â”œâ”€â”€ run_windows.bat
+â””â”€â”€ README.md
 ```
 
 ## Roadmap

@@ -6,7 +6,8 @@ import {
   buildAdvisorContext,
   applyAnalyzeResult,
   buildKanbanItems,
-  normalizeBackendModelId
+  normalizeBackendModelId,
+  summarizeMeetingFallback
 } from './advisors.js';
 
 test('extractCompetitionSlug accepts Kaggle competition URLs and plain slugs', () => {
@@ -17,7 +18,7 @@ test('extractCompetitionSlug accepts Kaggle competition URLs and plain slugs', (
   assert.equal(extractCompetitionSlug('titanic'), 'titanic');
 });
 
-test('defaultProjectState exposes v2.7 operating state', () => {
+test('defaultProjectState exposes v2.8 operating state', () => {
   const state = defaultProjectState();
 
   assert.deepEqual(state.kaggleMetadata, {});
@@ -41,11 +42,28 @@ test('defaultProjectState exposes v2.7 operating state', () => {
   assert.equal(state.conversationState.active, false);
   assert.equal(state.conversationState.agentId, 'maya-pm');
   assert.equal(state.meetingStageState.active, false);
+  assert.equal(state.meetingStageState.mode, 'strategy');
+  assert.deepEqual(state.meetingStageState.transcript, []);
+  assert.equal(state.meetingStageState.summaryStatus, 'idle');
+  assert.equal(state.meetingStageState.savedDecisions, false);
   assert.equal(state.officeAliveState.coffeeBrews, 0);
   assert.deepEqual(state.officeAliveState.notesRead, []);
   assert.equal(state.officeAliveState.strategyLight, 'idle');
   assert.equal(state.learningProgress.games.quiz.runs, 0);
   assert.equal(state.learningProgress.games.leakHunter.bestScore, 0);
+});
+
+test('summarizeMeetingFallback includes required scribe sections and advisor sources', () => {
+  const summary = summarizeMeetingFallback([
+    { agent: { name: 'Raka', role: 'Data Engineer' }, answer: 'Prioritas saya: audit schema dan missing values sebelum modeling.' },
+    { agent: { name: 'Nadia', role: 'Validation Scientist' }, answer: 'Validasi harus meniru private leaderboard dan semua preprocessing dilakukan per fold.' }
+  ], 'Audit baseline', 'data');
+
+  for (const heading of ['Executive Summary', 'Key Decisions', 'Most Valuable Insights', 'Risks & Objections', 'Next Experiments', 'Open Questions', 'Recommended Next Meeting']) {
+    assert.match(summary, new RegExp(`## ${heading}`));
+  }
+  assert.match(summary, /Raka/);
+  assert.match(summary, /Nadia/);
 });
 
 test('applyAnalyzeResult stores Kaggle metadata and marks download complete', () => {

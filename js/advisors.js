@@ -96,7 +96,17 @@ export function defaultProjectState() {
     lookSensitivity: 0.96,
     currentFloor: 1,
     conversationState: { active: false, agentId: 'maya-pm', messages: [], lastPrompt: '' },
-    meetingStageState: { active: false, topic: '', statusByAgent: {}, outputs: [], summary: '' },
+    meetingStageState: {
+      active: false,
+      topic: '',
+      mode: 'strategy',
+      statusByAgent: {},
+      outputs: [],
+      transcript: [],
+      summary: '',
+      summaryStatus: 'idle',
+      savedDecisions: false
+    },
     officeAliveState: {
       coffeeBrews: 0,
       notesRead: [],
@@ -425,28 +435,86 @@ export async function multiAgentDebate(topic, state, agents = AGENTS) {
   return outputs;
 }
 
-export function summarizeMeeting(outputs = []) {
-  const risks = [];
-  const actions = [];
-  const decisions = [];
-  for (const item of outputs) {
-    const role = item.agent.role;
-    if (role.includes('Validation')) risks.push('Validasi harus meniru private leaderboard dan diaudit dari risiko leakage.');
-    if (role.includes('Data')) actions.push('Buat data dictionary dan leakage scan sebelum modeling.');
-    if (role.includes('Machine')) actions.push('Mulai dari baseline reproducible, baru naik ke model lebih kompleks.');
-    if (role.includes('Project')) decisions.push('Gunakan sprint: intake -> data audit -> validasi -> baseline -> eksperimen -> review.');
-    if (role.includes('Reviewer')) risks.push('Audit sample submission, preprocessing per fold, dan seed sebelum submit.');
-  }
+export const MEETING_SUMMARY_SECTION_TITLES = [
+  'Executive Summary',
+  'Key Decisions',
+  'Most Valuable Insights',
+  'Risks & Objections',
+  'Next Experiments',
+  'Open Questions',
+  'Recommended Next Meeting'
+];
+
+export function summarizeMeetingFallback(outputs = [], topic = '', mode = 'strategy') {
+  const usable = outputs.filter(item => item && !item.failed);
+  const failed = outputs.filter(item => item?.failed);
+  const sourceList = usable.map(item => `${item.agent?.name || 'Advisor'} (${item.agent?.role || 'Role unknown'})`);
+  const insights = usable.map(item => {
+    const source = `${item.agent?.name || 'Advisor'}${item.agent?.role ? ` - ${item.agent.role}` : ''}`;
+    return `- ${source}: ${extractMeetingInsight(item.answer)}`;
+  });
+  const hasData = usable.length > 0;
+  const modeLabel = formatMeetingMode(mode);
   return [
-    'Ringkasan keputusan rapat:',
-    ...Array.from(new Set(decisions)).map(x => `- ${x}`),
+    '## Executive Summary',
+    hasData
+      ? `Rapat ${modeLabel} membahas ${topic || 'strategi Kaggle aktif'} dengan ${usable.length} advisor. Fokus keputusan: validasi yang bisa dipercaya, audit data, eksperimen kecil yang tercatat, dan submission yang aman.`
+      : 'Belum ada output advisor yang berhasil, jadi summary ini hanya fallback lokal. Jalankan meeting ulang setelah backend/LLM siap.',
     '',
-    'Aksi berikutnya:',
-    ...Array.from(new Set(actions)).map(x => `- ${x}`),
+    '## Key Decisions',
+    '- Gunakan alur: intake brief -> audit data -> validasi -> baseline reproducible -> eksperimen terarah -> review sebelum submit.',
+    '- Semua eksperimen harus punya hipotesis, metric, seed, dan keputusan lanjut.',
+    '- Jangan mengandalkan public leaderboard tanpa validasi internal yang masuk akal.',
     '',
-    'Risiko yang harus dijaga:',
-    ...Array.from(new Set(risks)).map(x => `- ${x}`)
+    '## Most Valuable Insights',
+    insights.length ? insights.join('\n') : '- Belum ada insight advisor yang bisa diekstrak.',
+    '',
+    '## Risks & Objections',
+    '- Leakage, split validasi yang tidak meniru private leaderboard, dan format submission tetap menjadi risiko utama.',
+    '- Jika satu advisor gagal, rapat tetap sah tetapi bagian tersebut perlu diulang atau direview manual.',
+    failed.length ? `- Advisor gagal: ${failed.map(item => item.agent?.name || 'unknown').join(', ')}.` : '- Tidak ada kegagalan advisor yang tercatat.',
+    '',
+    '## Next Experiments',
+    '- Buat baseline cepat dan reproducible, lalu simpan CV score dan catatan keputusan.',
+    '- Jalankan EDA terarah untuk missing value, distribusi target, outlier, dan kandidat leakage.',
+    '- Bandingkan satu perubahan kecil per run agar efeknya mudah dibaca.',
+    '',
+    '## Open Questions',
+    '- Metric resmi dan aturan submission sudah dikunci atau belum?',
+    '- Apakah split validasi sudah meniru distribusi test/private leaderboard?',
+    '- Kolom mana yang paling berisiko leakage atau drift?',
+    '',
+    '## Recommended Next Meeting',
+    sourceList.length
+      ? `Lanjutkan dengan Data/EDA Review bersama ${sourceList.slice(0, 3).join(', ')} setelah profil data dan baseline pertama tersedia.`
+      : 'Ulangi Strategy Planning setelah backend/LLM aktif atau advisor berhasil menjawab.'
   ].join('\n');
+}
+
+export function summarizeMeeting(outputs = [], topic = '', mode = 'strategy') {
+  return summarizeMeetingFallback(outputs, topic, mode);
+}
+
+function extractMeetingInsight(answer = '') {
+  const lines = String(answer || '')
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean)
+    .filter(line => !/^\[(LLM|Backend fallback|Frontend fallback):/i.test(line))
+    .filter(line => !/^#{1,3}\s/.test(line))
+    .filter(line => !/^\*\*.+\*\*:?.*$/.test(line));
+  const candidate = lines.find(line => line.length > 24) || lines[0] || 'Tidak ada detail yang cukup spesifik.';
+  return candidate.length > 190 ? `${candidate.slice(0, 187)}...` : candidate;
+}
+
+function formatMeetingMode(mode = 'strategy') {
+  return ({
+    strategy: 'Strategy Planning',
+    data: 'Data/EDA Review',
+    validation: 'Validation & Leakage Audit',
+    experiment: 'Experiment Review',
+    submission: 'Submission Gate'
+  })[mode] || 'Strategy Planning';
 }
 
 export function buildKanbanItems(state) {

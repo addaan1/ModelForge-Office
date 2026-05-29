@@ -170,16 +170,26 @@
       </section>
 
       <section class="panelPane" data-panel-pane="meeting">
-        <section class="card">
+        <section class="card meetingSetupCard">
           <h2>War Room Debate</h2>
+          <p class="cardHint">Setup rapat multi-advisor. Jawaban panjang dibaca di Debate Stage, lalu LLM Scribe membuat synthesis akhir.</p>
+          <label>Mode meeting
+            <select id="meetingModeSelect">
+              <option value="strategy">Strategy Planning</option>
+              <option value="data">Data/EDA Review</option>
+              <option value="validation">Validation & Leakage Audit</option>
+              <option value="experiment">Experiment Review</option>
+              <option value="submission">Submission Gate</option>
+            </select>
+          </label>
           <label>Topik rapat
             <textarea id="meetingTopic" rows="3" placeholder="Contoh: Perdebatkan baseline, leakage risk, validasi, dan strategi submission."></textarea>
           </label>
           <div class="buttonGrid two">
             <button id="gatherTeamBtn" class="primaryBtn">Kumpulkan team</button>
-            <button id="startMeetingBtn">Buka Debate Stage</button>
+            <button id="startMeetingBtn">Buka & mulai rapat</button>
           </div>
-          <button id="summarizeMeetingBtn" class="wideBtn">Ringkas keputusan rapat</button>
+          <button id="summarizeMeetingBtn" class="wideBtn">Buka summary rapat terakhir</button>
           <div class="standupPrompt">
             <strong>Daily Standup Prompt</strong>
             <button data-standup="learned">What did we learn?</button>
@@ -335,23 +345,44 @@
 
     <section id="debateStageOverlay" class="experienceOverlay debateStageOverlay" hidden aria-live="polite">
       <div class="overlayShell debateShell">
-        <header class="overlayHeader">
+        <header class="overlayHeader debateHeader">
           <div>
             <span>Glass War Room</span>
             <h2>Debate Stage</h2>
-            <p id="debateStageTopic">Advisor memberi pendapat bergiliran, lalu diringkas menjadi keputusan.</p>
+            <p id="debateStageTopic">Advisor memberi pendapat bergiliran, transcript tetap terbaca, lalu LLM Scribe menyusun keputusan.</p>
           </div>
           <div class="overlayHeaderActions">
-            <button id="debateSaveBtn" type="button">Simpan summary</button>
+            <button id="debateSaveBtn" type="button">Save Decisions</button>
+            <button id="sendDecisionsToBoardBtn" type="button">Next Experiments</button>
+            <button id="saveTranscriptBtn" type="button">Save Transcript</button>
             <button id="debateRetryBtn" type="button">Retry</button>
             <button id="debateCloseBtn" class="iconBtn" type="button">X</button>
           </div>
         </header>
-        <div id="debateStageCards" class="debateStageCards"></div>
-        <section class="debateSummary">
-          <h3>Decision Summary</h3>
-          <div id="debateStageSummary" class="richText">Belum ada summary.</div>
-        </section>
+        <div class="debateWorkspace">
+          <aside class="debateAdvisorRail" aria-label="Advisor status">
+            <div class="debatePanelHeader">
+              <span>Advisor Rail</span>
+              <strong>Status</strong>
+            </div>
+            <div id="debateAdvisorRail" class="debateAdvisorList"></div>
+          </aside>
+          <section class="debateTranscriptPane" aria-label="Meeting transcript">
+            <div class="debatePanelHeader">
+              <span>Transcript Pane</span>
+              <strong>Full discussion</strong>
+            </div>
+            <div id="debateTranscript" class="debateTranscript"></div>
+          </section>
+          <section class="debateSummary" aria-label="LLM Scribe summary">
+            <div class="debatePanelHeader">
+              <span>LLM Scribe</span>
+              <strong>Synthesis</strong>
+            </div>
+            <div id="debateSummaryStatus" class="scribeStatus idle">Belum dimulai.</div>
+            <div id="debateStageSummary" class="richText debateSummaryBody">Belum ada summary.</div>
+          </section>
+        </div>
       </div>
     </section>
 

@@ -4,7 +4,7 @@ import { AGENTS, ROOMS } from './config.js?v=2.7';
 import {
   getAgent,
   askAdvisor,
-  summarizeMeeting,
+  summarizeMeetingFallback,
   loadState,
   saveStatePatch,
   buildPlanFromState,
@@ -24,6 +24,7 @@ if (state.lookSensitivity == null || Math.abs(Number(state.lookSensitivity) - 0.
 }
 let activeAgentId = AGENTS[0].id;
 let lastMeetingOutputs = [];
+let lastMeetingTranscript = [];
 let activeFloor = 1;
 let activeRoom = 'Lobby & Onboarding';
 let mediaRecorder = null;
@@ -102,6 +103,33 @@ const CONVERSATION_PROMPTS = {
 };
 
 const DEBATE_AGENT_ORDER = ['maya-pm', 'raka-data', 'sinta-eda', 'nadia-val', 'bima-ml', 'tari-story', 'dimas-review', 'lana-mentor'];
+const MEETING_MODES = {
+  strategy: {
+    label: 'Strategy Planning',
+    focus: 'prioritas sprint, keputusan awal, ownership, dan urutan kerja',
+    advisorInstruction: 'Tekankan keputusan strategis, trade-off, dan urutan sprint yang paling masuk akal.'
+  },
+  data: {
+    label: 'Data/EDA Review',
+    focus: 'file, schema, missing value, distribusi target, drift, dan EDA yang menghasilkan keputusan',
+    advisorInstruction: 'Fokus pada audit data, profil CSV, risiko kualitas data, dan insight EDA yang bisa diuji.'
+  },
+  validation: {
+    label: 'Validation & Leakage Audit',
+    focus: 'split validasi, leakage, public/private leaderboard gap, dan audit preprocessing per fold',
+    advisorInstruction: 'Fokus pada cara membuktikan validasi aman dan menemukan leakage sebelum modeling agresif.'
+  },
+  experiment: {
+    label: 'Experiment Review',
+    focus: 'hasil run, hipotesis, metric, error analysis, dan next experiment yang murah diuji',
+    advisorInstruction: 'Fokus pada interpretasi hasil eksperimen dan keputusan lanjut yang konkret.'
+  },
+  submission: {
+    label: 'Submission Gate',
+    focus: 'format submission, reproducibility, seed, final checks, dan risiko sebelum submit',
+    advisorInstruction: 'Fokus pada checklist gate sebelum submit dan alasan go/no-go.'
+  }
+};
 const ROUTER_RULES = [
   { match: ['data', 'schema', 'csv', 'kolom', 'missing', 'profile', 'eda'], agents: ['raka-data', 'sinta-eda'] },
   { match: ['baseline', 'model', 'training', 'fitur', 'xgboost', 'catboost', 'lightgbm'], agents: ['bima-ml', 'nadia-val'] },
@@ -173,6 +201,7 @@ const dom = {
   stopTranscriptBtn: $('#stopTranscriptBtn'),
   transcriptStatus: $('#transcriptStatus'),
   meetingTopic: $('#meetingTopic'),
+  meetingModeSelect: $('#meetingModeSelect'),
   startMeetingBtn: $('#startMeetingBtn'),
   summarizeMeetingBtn: $('#summarizeMeetingBtn'),
   meetingLog: $('#meetingLog'),
@@ -213,8 +242,12 @@ const dom = {
   debateSaveBtn: $('#debateSaveBtn'),
   debateRetryBtn: $('#debateRetryBtn'),
   debateCloseBtn: $('#debateCloseBtn'),
-  debateStageCards: $('#debateStageCards'),
+  debateAdvisorRail: $('#debateAdvisorRail'),
+  debateTranscript: $('#debateTranscript'),
+  debateSummaryStatus: $('#debateSummaryStatus'),
   debateStageSummary: $('#debateStageSummary'),
+  saveTranscriptBtn: $('#saveTranscriptBtn'),
+  sendDecisionsToBoardBtn: $('#sendDecisionsToBoardBtn'),
   arcadeOverlay: $('#arcadeOverlay'),
   arcadeTitle: $('#arcadeTitle'),
   arcadeSubtitle: $('#arcadeSubtitle'),
@@ -324,6 +357,7 @@ function hydrateForm() {
   dom.collisionDebugToggle.checked = Boolean(state.collisionDebugEnabled);
   dom.lookSensitivity.value = state.lookSensitivity ?? 0.96;
   dom.routerMode.value = state.missionRouter?.mode || 'fast';
+  dom.meetingModeSelect.value = state.meetingStageState?.mode || 'strategy';
 }
 
 function bindUI() {
@@ -421,6 +455,10 @@ function bindUI() {
   dom.stopTranscriptBtn.addEventListener('click', stopRecording);
   dom.startMeetingBtn.addEventListener('click', startMeeting);
   dom.summarizeMeetingBtn.addEventListener('click', summarizeCurrentMeeting);
+  dom.meetingModeSelect.addEventListener('change', () => {
+    state.meetingStageState = { ...(state.meetingStageState || {}), mode: getMeetingMode() };
+    saveStatePatch({ meetingStageState: state.meetingStageState });
+  });
   dom.conversationCloseBtn.addEventListener('click', closeConversation);
   dom.conversationSendBtn.addEventListener('click', sendConversationMessage);
   dom.conversationInput.addEventListener('keydown', (e) => {
@@ -432,8 +470,10 @@ function bindUI() {
   dom.conversationQuickActions.forEach(btn => btn.addEventListener('click', () => sendConversationPrompt(btn.dataset.convPrompt)));
   dom.conversationSendBoardBtn.addEventListener('click', sendConversationToBoard);
   dom.debateCloseBtn.addEventListener('click', closeDebateStage);
-  dom.debateRetryBtn.addEventListener('click', () => runDebateStage(currentDebateTopic || dom.meetingTopic.value.trim()));
+  dom.debateRetryBtn.addEventListener('click', () => runDebateStage(currentDebateTopic || dom.meetingTopic.value.trim(), getMeetingMode()));
   dom.debateSaveBtn.addEventListener('click', saveDebateSummary);
+  dom.saveTranscriptBtn.addEventListener('click', saveDebateTranscript);
+  dom.sendDecisionsToBoardBtn.addEventListener('click', sendDebateDecisionsToBoard);
   dom.arcadeCloseBtn.addEventListener('click', closeArcade);
   document.querySelectorAll('[data-standup]').forEach(btn => btn.addEventListener('click', () => applyStandupPrompt(btn.dataset.standup)));
   dom.addExperimentBtn.addEventListener('click', addExperiment);
@@ -1281,33 +1321,58 @@ async function transcribeRecording() {
 async function startMeeting() {
   saveBrief();
   const topic = dom.meetingTopic.value.trim() || 'Susun strategi awal kompetisi Kaggle dari brief yang tersedia.';
+  const mode = getMeetingMode();
   ensureTeamGathered();
   world.teleportToWarRoom();
-  openDebateStage(topic);
-  await runDebateStage(topic);
+  openDebateStage(topic, mode);
+  await runDebateStage(topic, mode);
 }
 
-function summarizeCurrentMeeting() {
+async function summarizeCurrentMeeting() {
+  const topic = currentDebateTopic || dom.meetingTopic.value.trim() || 'Susun strategi awal kompetisi Kaggle dari brief yang tersedia.';
+  const mode = getMeetingMode();
+  openDebateStage(topic, mode);
   if (!lastMeetingOutputs.length) {
-    openDebateStage(dom.meetingTopic.value.trim() || 'Susun strategi awal kompetisi Kaggle dari brief yang tersedia.');
+    setScribeStatus('idle', 'Belum ada rapat yang bisa diringkas. Jalankan Debate Stage dulu.');
     return;
   }
-  openDebateStage(currentDebateTopic || dom.meetingTopic.value.trim());
-  dom.debateStageSummary.innerHTML = renderRichText(summarizeMeeting(lastMeetingOutputs));
+  renderDebateTranscript(lastMeetingTranscript);
+  setScribeStatus('thinking', 'LLM Scribe sedang merapikan summary rapat terakhir...');
+  try {
+    const final = await generateMeetingSummary(lastMeetingOutputs.filter(item => !item.failed), topic, mode);
+    dom.debateStageSummary.innerHTML = renderRichText(final);
+    setScribeStatus('done', 'Summary rapat terakhir siap dibaca.');
+    state.meetingStageState = { ...(state.meetingStageState || {}), active: true, topic, mode, summary: final, summaryStatus: 'done' };
+  } catch (err) {
+    const fallback = summarizeMeetingFallback(lastMeetingOutputs, topic, mode);
+    dom.debateStageSummary.innerHTML = renderRichText(fallback);
+    setScribeStatus('fallback', `LLM Scribe gagal (${err.message || 'backend error'}). Fallback lokal dipakai.`);
+    state.meetingStageState = { ...(state.meetingStageState || {}), active: true, topic, mode, summary: fallback, summaryStatus: 'fallback' };
+  }
+  saveStatePatch({ meetingStageState: state.meetingStageState });
 }
 
-function openDebateStage(topic) {
+function openDebateStage(topic, mode = getMeetingMode()) {
   currentDebateTopic = topic || 'Susun strategi awal kompetisi Kaggle dari brief yang tersedia.';
+  const modeConfig = getMeetingModeConfig(mode);
   dom.debateStageOverlay.hidden = false;
-  dom.debateStageTopic.textContent = currentDebateTopic;
-  dom.debateStageSummary.innerHTML = '<p>Debate belum dimulai.</p>';
-  renderDebateCards(DEBATE_AGENT_ORDER.map(id => ({ agent: getAgent(id), status: 'waiting', answer: '' })));
+  dom.debateStageTopic.textContent = `${modeConfig.label} - ${currentDebateTopic}`;
+  dom.debateStageSummary.innerHTML = '<p>Summary akan muncul setelah semua advisor selesai menjawab.</p>';
+  setScribeStatus('idle', 'Menunggu transcript advisor.');
+  const rows = DEBATE_AGENT_ORDER.map(id => ({ agent: getAgent(id), status: state.meetingStageState?.statusByAgent?.[id] || 'waiting', elapsedMs: 0 }));
+  renderAdvisorRail(rows);
+  renderDebateTranscript(lastMeetingTranscript);
   state.meetingStageState = {
+    ...(state.meetingStageState || {}),
     active: true,
     topic: currentDebateTopic,
-    statusByAgent: {},
+    mode,
+    statusByAgent: Object.fromEntries(rows.map(row => [row.agent.id, row.status])),
     outputs: lastMeetingOutputs,
-    summary: ''
+    transcript: lastMeetingTranscript,
+    summary: state.meetingStageState?.summary || '',
+    summaryStatus: state.meetingStageState?.summaryStatus || 'idle',
+    savedDecisions: Boolean(state.meetingStageState?.savedDecisions)
   };
   saveStatePatch({ meetingStageState: state.meetingStageState });
 }
@@ -1318,63 +1383,252 @@ function closeDebateStage() {
   saveStatePatch({ meetingStageState: state.meetingStageState });
 }
 
-async function runDebateStage(topic) {
+async function runDebateStage(topic, mode = getMeetingMode()) {
   currentDebateTopic = topic || currentDebateTopic || 'Susun strategi awal kompetisi Kaggle dari brief yang tersedia.';
-  openDebateStage(currentDebateTopic);
+  mode = mode || getMeetingMode();
+  openDebateStage(currentDebateTopic, mode);
   dom.meetingLog.innerHTML = '';
-  addMeetingSystem('Debate Stage berjalan. Advisor akan menjawab bergiliran; jika satu gagal, rapat tetap lanjut.');
+  addMeetingSystem('Debate Stage berjalan. Advisor menjawab bergiliran; transcript penuh ada di overlay, summary dibuat setelah semua selesai.');
   dom.startMeetingBtn.disabled = true;
   dom.debateRetryBtn.disabled = true;
-  const rows = DEBATE_AGENT_ORDER.map(id => ({ agent: getAgent(id), status: 'waiting', answer: '' }));
+  dom.debateSaveBtn.disabled = true;
+  dom.sendDecisionsToBoardBtn.disabled = true;
+  dom.saveTranscriptBtn.disabled = true;
+
+  const rows = DEBATE_AGENT_ORDER.map(id => ({ agent: getAgent(id), status: 'waiting', elapsedMs: 0 }));
   const outputs = [];
+  const transcript = [{ type: 'system', text: `Meeting dimulai: ${getMeetingModeConfig(mode).label}. Topic: ${currentDebateTopic}` }];
+  lastMeetingOutputs = outputs;
+  lastMeetingTranscript = transcript;
+  renderAdvisorRail(rows);
+  renderDebateTranscript(transcript);
+  persistMeetingStage(rows, outputs, transcript, '', 'thinking');
+
   for (const row of rows) {
     row.status = 'thinking';
-    renderDebateCards(rows);
-    const prompt = `Topik rapat: ${currentDebateTopic}\n\nBerikan pendapat sebagai ${row.agent.role}. Fokus pada keputusan, risiko, atau next action. Jawab dalam Bahasa Indonesia, struktur jelas, tidak terlalu panjang.`;
+    row.startedAt = performance.now();
+    renderAdvisorRail(rows);
+    persistMeetingStage(rows, outputs, transcript, '', 'thinking');
+    const prompt = buildMeetingAdvisorPrompt(row.agent, currentDebateTopic, mode, outputs);
     try {
       const answer = await withTimeout(askAdvisor(row.agent.id, prompt, state), 90000);
       row.status = 'done';
-      row.answer = answer;
-      outputs.push({ agent: row.agent, answer });
-      addMeetingMessage(row.agent, answer);
+      row.elapsedMs = performance.now() - row.startedAt;
+      const cleanAnswer = stripProviderLine(answer);
+      outputs.push({ agent: row.agent, answer: cleanAnswer, mode, elapsedMs: row.elapsedMs });
+      transcript.push({
+        type: 'agent',
+        agentId: row.agent.id,
+        name: row.agent.name,
+        role: row.agent.role,
+        text: cleanAnswer,
+        elapsedMs: row.elapsedMs,
+        ts: new Date().toISOString()
+      });
+      addMeetingMessage(row.agent, cleanAnswer);
     } catch (err) {
       row.status = 'failed';
-      row.answer = `Gagal mengambil jawaban: ${err.message || 'timeout/backend error'}`;
-      outputs.push({ agent: row.agent, answer: row.answer, failed: true });
+      row.elapsedMs = row.startedAt ? performance.now() - row.startedAt : 0;
+      const message = `Gagal mengambil jawaban: ${err.message || 'timeout/backend error'}`;
+      outputs.push({ agent: row.agent, answer: message, failed: true, mode, elapsedMs: row.elapsedMs });
+      transcript.push({
+        type: 'agent',
+        failed: true,
+        agentId: row.agent.id,
+        name: row.agent.name,
+        role: row.agent.role,
+        text: message,
+        elapsedMs: row.elapsedMs,
+        ts: new Date().toISOString()
+      });
       addMeetingSystem(`${row.agent.name} gagal, rapat lanjut ke advisor berikutnya.`);
     }
-    renderDebateCards(rows);
+    renderAdvisorRail(rows);
+    renderDebateTranscript(transcript);
+    persistMeetingStage(rows, outputs, transcript, '', 'thinking');
   }
+
   lastMeetingOutputs = outputs;
-  const final = summarizeMeeting(outputs.filter(item => !item.failed));
+  lastMeetingTranscript = transcript;
+  setScribeStatus('thinking', 'LLM Scribe sedang menyusun synthesis akhir...');
+  persistMeetingStage(rows, outputs, transcript, '', 'thinking');
+  let final = '';
+  let summaryStatus = 'done';
+  try {
+    final = await generateMeetingSummary(outputs.filter(item => !item.failed), currentDebateTopic, mode);
+    setScribeStatus('done', 'LLM Scribe selesai. Summary siap dipakai untuk keputusan.');
+  } catch (err) {
+    final = summarizeMeetingFallback(outputs, currentDebateTopic, mode);
+    summaryStatus = 'fallback';
+    setScribeStatus('fallback', `LLM Scribe gagal (${err.message || 'backend error'}). Fallback lokal dipakai.`);
+  }
   dom.debateStageSummary.innerHTML = renderRichText(final);
-  addMeetingSystem(final);
-  state.meetingStageState = {
-    active: true,
-    topic: currentDebateTopic,
-    statusByAgent: Object.fromEntries(rows.map(row => [row.agent.id, row.status])),
-    outputs,
-    summary: final
-  };
-  saveStatePatch({ meetingStageState: state.meetingStageState });
+  transcript.push({ type: 'system', text: `Summary selesai (${summaryStatus}).` });
+  renderDebateTranscript(transcript);
+  addMeetingSystem('Summary rapat siap di Debate Stage.');
+  persistMeetingStage(rows, outputs, transcript, final, summaryStatus);
   dom.startMeetingBtn.disabled = false;
   dom.debateRetryBtn.disabled = false;
+  dom.debateSaveBtn.disabled = false;
+  dom.sendDecisionsToBoardBtn.disabled = false;
+  dom.saveTranscriptBtn.disabled = false;
 }
 
-function renderDebateCards(rows) {
-  dom.debateStageCards.innerHTML = rows.map(row => `
-    <article class="debateCard ${row.status}">
-      <div class="debateCardHead">
-        <strong>${escapeText(row.agent.name)} - ${escapeText(row.agent.role)}</strong>
-        <span class="statusPill">${escapeText(statusLabel(row.status))}</span>
+function getMeetingMode() {
+  return dom.meetingModeSelect?.value || state.meetingStageState?.mode || 'strategy';
+}
+
+function getMeetingModeConfig(mode) {
+  return MEETING_MODES[mode] || MEETING_MODES.strategy;
+}
+
+function buildMeetingAdvisorPrompt(agent, topic, mode, previousOutputs = []) {
+  const modeConfig = getMeetingModeConfig(mode);
+  const previous = previousOutputs.length
+    ? previousOutputs.map(item => `${item.agent?.name}: ${String(item.answer || '').slice(0, 520)}`).join('\n---\n')
+    : 'Belum ada advisor sebelumnya.';
+  return [
+    `Mode meeting: ${modeConfig.label}`,
+    `Fokus mode: ${modeConfig.focus}`,
+    `Topik rapat: ${topic}`,
+    `Peran kamu: ${agent.name} - ${agent.role}`,
+    `Instruksi peran: ${modeConfig.advisorInstruction}`,
+    '',
+    'Jawab dalam Bahasa Indonesia. Jangan generik. Berikan 3-5 poin yang bisa dipakai untuk keputusan Kaggle.',
+    'Jika metadata/data tidak tersedia, katakan belum tersedia. Jangan menebak ukuran dataset, metric, atau deadline.',
+    'Akhiri dengan satu rekomendasi aksi paling konkret dari perspektifmu.',
+    '',
+    `Jawaban advisor sebelumnya untuk konteks:\n${previous}`
+  ].join('\n');
+}
+
+async function generateMeetingSummary(outputs, topic, mode) {
+  const fallback = summarizeMeetingFallback(outputs, topic, mode);
+  if (!outputs.length) return fallback;
+  const modeConfig = getMeetingModeConfig(mode);
+  const transcript = outputs.map(item => {
+    const source = `${item.agent?.name || 'Advisor'} - ${item.agent?.role || 'Role unknown'}`;
+    return `SOURCE: ${source}\n${String(item.answer || '').trim()}`;
+  }).join('\n\n---\n\n');
+  const prompt = [
+    'Anda adalah LLM Scribe / moderator rapat Kaggle War Room.',
+    'Tugas: sintesis diskusi multi-advisor menjadi summary keputusan yang singkat, akurat, dan actionable.',
+    'Bahasa output: Indonesia.',
+    'Aturan penting:',
+    '- Jangan mengarang metric, deadline, ukuran dataset, atau fakta data yang tidak disebut transcript/context.',
+    '- Setiap insight penting harus menyebut sumber advisor, contoh: Raka + Nadia atau Maya.',
+    '- Jangan menyalin semua transcript. Gabungkan perbedaan pendapat menjadi keputusan.',
+    '- Jika ada konflik pendapat, tulis di Risks & Objections.',
+    '',
+    `Mode meeting: ${modeConfig.label}`,
+    `Fokus mode: ${modeConfig.focus}`,
+    `Topik: ${topic}`,
+    '',
+    'Gunakan format heading persis ini:',
+    '## Executive Summary',
+    '## Key Decisions',
+    '## Most Valuable Insights',
+    '## Risks & Objections',
+    '## Next Experiments',
+    '## Open Questions',
+    '## Recommended Next Meeting',
+    '',
+    `Transcript advisor:\n${transcript}`
+  ].join('\n');
+  const answer = stripProviderLine(await withTimeout(askAdvisor('maya-pm', prompt, {
+    ...state,
+    meetingStageState: { ...(state.meetingStageState || {}), topic, mode, outputs }
+  }), 90000));
+  return ensureScribeSections(answer, fallback);
+}
+
+function ensureScribeSections(answer, fallback) {
+  const required = ['Executive Summary', 'Key Decisions', 'Most Valuable Insights', 'Risks & Objections', 'Next Experiments', 'Open Questions', 'Recommended Next Meeting'];
+  const count = required.filter(title => new RegExp(`(^|\\n)#{1,3}\\s*${escapeRegExp(title)}`, 'i').test(answer)).length;
+  if (count < 4) return fallback;
+  const missing = required.filter(title => !new RegExp(`(^|\\n)#{1,3}\\s*${escapeRegExp(title)}`, 'i').test(answer));
+  if (!missing.length) return answer;
+  const fallbackSections = splitSummarySections(fallback);
+  return `${answer.trim()}\n\n${missing.map(title => `## ${title}\n${fallbackSections[title] || '- Belum ada detail tambahan.'}`).join('\n\n')}`;
+}
+
+function splitSummarySections(text) {
+  const sections = {};
+  const parts = String(text || '').split(/\n(?=##\s+)/);
+  for (const part of parts) {
+    const match = part.match(/^##\s+(.+?)\n([\s\S]*)$/);
+    if (match) sections[match[1].trim()] = match[2].trim();
+  }
+  return sections;
+}
+
+function renderAdvisorRail(rows) {
+  dom.debateAdvisorRail.innerHTML = rows.map(row => `
+    <article class="debateAdvisorItem ${escapeText(row.status)}">
+      <div>
+        <strong>${escapeText(row.agent.name)}</strong>
+        <span class="role">${escapeText(row.agent.role)}</span>
       </div>
-      <div class="richText">${row.answer ? renderRichText(row.answer) : '<p>Menunggu giliran.</p>'}</div>
+      <div class="advisorMeta">
+        <span class="statusPill">${escapeText(meetingStatusLabel(row.status))}</span>
+        <span class="elapsedTime">${formatElapsed(row.elapsedMs)}</span>
+      </div>
     </article>
   `).join('');
 }
 
-function statusLabel(status) {
+function renderDebateTranscript(items = []) {
+  if (!items.length) {
+    dom.debateTranscript.innerHTML = '<div class="transcriptEmpty">Transcript belum tersedia. Mulai rapat untuk melihat jawaban advisor secara real-time.</div>';
+    return;
+  }
+  dom.debateTranscript.innerHTML = items.map(item => {
+    if (item.type === 'system') {
+      return `<article class="transcriptMessage system"><p>${escapeText(item.text)}</p></article>`;
+    }
+    return `<article class="transcriptMessage agent ${item.failed ? 'failed' : ''}">
+      <div class="transcriptMeta">
+        <strong>${escapeText(item.name || 'Advisor')}</strong>
+        <span class="dotSep">-</span>
+        <span>${escapeText(item.role || '')}</span>
+        <span class="dotSep">-</span>
+        <span>${formatElapsed(item.elapsedMs)}</span>
+      </div>
+      <div class="richText">${item.failed ? escapeHtml(item.text || '') : renderRichText(stripProviderLine(item.text || ''))}</div>
+    </article>`;
+  }).join('');
+  dom.debateTranscript.scrollTop = dom.debateTranscript.scrollHeight;
+}
+
+function setScribeStatus(status, message) {
+  dom.debateSummaryStatus.className = `scribeStatus ${status}`;
+  dom.debateSummaryStatus.textContent = message;
+}
+
+function persistMeetingStage(rows, outputs, transcript, summary, summaryStatus) {
+  state.meetingStageState = {
+    ...(state.meetingStageState || {}),
+    active: true,
+    topic: currentDebateTopic,
+    mode: getMeetingMode(),
+    statusByAgent: Object.fromEntries(rows.map(row => [row.agent.id, row.status])),
+    outputs,
+    transcript,
+    summary: summary || state.meetingStageState?.summary || '',
+    summaryStatus: summaryStatus || state.meetingStageState?.summaryStatus || 'idle',
+    savedDecisions: Boolean(state.meetingStageState?.savedDecisions)
+  };
+  saveStatePatch({ meetingStageState: state.meetingStageState });
+}
+
+function meetingStatusLabel(status) {
   return ({ waiting: 'waiting', thinking: 'thinking', done: 'done', failed: 'failed' })[status] || status;
+}
+
+function formatElapsed(ms = 0) {
+  if (!ms) return '--';
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
 }
 
 function withTimeout(promise, ms) {
@@ -1390,19 +1644,75 @@ function saveDebateSummary() {
     toast('Belum ada summary untuk disimpan.');
     return;
   }
-  state.whiteboard = `${state.whiteboard || dom.whiteboardText.value}\n\nDEBATE STAGE\n${new Date().toLocaleString()}\n${summaryText}`;
+  state.whiteboard = `${state.whiteboard || dom.whiteboardText.value}\n\nWAR ROOM SCRIBE SUMMARY\n${new Date().toLocaleString()}\nTopic: ${currentDebateTopic}\n\n${summaryText}`;
   dom.whiteboardText.value = state.whiteboard;
   state.experimentLog = [...(state.experimentLog || []), {
     name: `War Room decision - ${currentDebateTopic.slice(0, 54)}`,
-    score: 'decision saved',
+    score: 'scribe summary saved',
+    ts: new Date().toISOString()
+  }];
+  state.meetingStageState = { ...(state.meetingStageState || {}), savedDecisions: true, summary: summaryText };
+  state.officeAliveState = { ...(state.officeAliveState || {}), strategyLight: 'done' };
+  saveStatePatch({ whiteboard: state.whiteboard, experimentLog: state.experimentLog, meetingStageState: state.meetingStageState, officeAliveState: state.officeAliveState });
+  world.setStrategyLight?.('done');
+  renderExperimentLog();
+  toast('Decisions disimpan ke whiteboard dan experiment log.');
+}
+
+function sendDebateDecisionsToBoard() {
+  const summaryText = dom.debateStageSummary.textContent.trim();
+  if (!summaryText || summaryText === 'Belum ada summary.') {
+    toast('Belum ada summary untuk dikirim ke board.');
+    return;
+  }
+  const decisions = extractSummarySection(summaryText, 'Key Decisions');
+  const experiments = extractSummarySection(summaryText, 'Next Experiments');
+  const payload = [
+    'WAR ROOM NEXT ACTIONS',
+    new Date().toLocaleString(),
+    `Topic: ${currentDebateTopic}`,
+    '',
+    'Key Decisions:',
+    decisions || '- Belum ada keputusan yang terstruktur.',
+    '',
+    'Next Experiments:',
+    experiments || '- Belum ada eksperimen lanjutan yang terstruktur.'
+  ].join('\n');
+  state.whiteboard = `${state.whiteboard || dom.whiteboardText.value}\n\n${payload}`;
+  dom.whiteboardText.value = state.whiteboard;
+  state.experimentLog = [...(state.experimentLog || []), {
+    name: `Next experiments - ${currentDebateTopic.slice(0, 50)}`,
+    score: 'sent from Debate Stage',
     ts: new Date().toISOString()
   }];
   saveStatePatch({ whiteboard: state.whiteboard, experimentLog: state.experimentLog });
-  state.officeAliveState = { ...(state.officeAliveState || {}), strategyLight: 'done' };
-  saveStatePatch({ officeAliveState: state.officeAliveState });
-  world.setStrategyLight?.('done');
   renderExperimentLog();
-  toast('Summary disimpan ke whiteboard dan experiment log.');
+  toast('Next experiments dikirim ke board.');
+}
+
+function saveDebateTranscript() {
+  if (!lastMeetingTranscript.length) {
+    toast('Transcript belum tersedia.');
+    return;
+  }
+  state.meetingStageState = {
+    ...(state.meetingStageState || {}),
+    transcript: lastMeetingTranscript,
+    transcriptSavedAt: new Date().toISOString()
+  };
+  saveStatePatch({ meetingStageState: state.meetingStageState });
+  toast('Full transcript tersimpan di local state rapat.');
+}
+
+function extractSummarySection(text, title) {
+  const source = String(text || '');
+  const re = new RegExp(`${escapeRegExp(title)}\\s*([\\s\\S]*?)(?=Executive Summary|Key Decisions|Most Valuable Insights|Risks & Objections|Next Experiments|Open Questions|Recommended Next Meeting|$)`, 'i');
+  const match = source.match(re);
+  return match ? match[1].trim() : '';
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function toggleTeamGathering() {
@@ -2144,7 +2454,7 @@ function renderRichText(value) {
       html.push(`<li>${inlineFormat(numbered[2])}</li>`);
       continue;
     }
-    const bullet = line.match(/^[-*]\s+(.+)$/);
+    const bullet = line.match(/^[-*•]\s+(.+)$/);
     if (bullet) {
       if (listType !== 'ul') {
         closeList();
@@ -2180,5 +2490,3 @@ function escapeHtml(value) {
   return escapeText(value)
     .replaceAll('\n', '<br/>');
 }
-
-
